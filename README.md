@@ -2,6 +2,8 @@
 
 A readable dark SEO workspace inspired by [RankSteward](https://ranksteward.com), built with the **Unison programming language**. The HTTP server, HTML analysis, scoring, and JSON responses run in Unison. HTML/CSS and dependency-free JavaScript render the browser interface.
 
+**[Open Summit SEO on Unison Cloud](https://wolfbreed1829.unison-services.cloud/s/summit-seo/)**
+
 The shared app targets **Unison Cloud's Free plan**, with actual HTML audits running in Unison. Each visitor has a separate browser-local workspace. The Free plan includes 5,000 requests/month, up to five services, and services deactivate after three weeks; see [current pricing](https://www.unison.cloud/pricing/).
 
 Cloud assets are embedded into Unison definitions using `node scripts/build-cloud-assets.mjs`. In UCM, install `@unison/cloud/releases/27.3.1`. Load and update `src/cloud-assets.u` and `src/cloud.u` after the local app, then run `summit.cloud.deploy`. The deploy function uses a dedicated `summit-seo-demo` environment and names the service `summit-seo`.
