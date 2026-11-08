@@ -1,0 +1,33 @@
+summit.tests.empty = test.verify do
+  test.ensureEqual (summit.audit "" |> summit.Report.score) 0
+
+summit.tests.healthy = test.verify do
+  html = "<html lang='en'><head><title>Mountain hiking gear and expert trail advice | Summit</title><meta name='description' content='Find thoughtfully selected hiking equipment, useful trail guides, and expert advice for your next outdoor adventure. Explore the collection at Summit today.'><link rel='canonical' href='https://example.com/'></head><body><h1>Explore more</h1><img src='a.jpg' alt='A forest trail'></body></html>"
+  test.ensureEqual (summit.audit html |> summit.Report.score) 100
+
+summit.tests.caseAndQuotes = test.verify do
+  report = summit.audit "<HTML LANG=en><TITLE>Trail &amp; field</TITLE><META CONTENT='Helpful > details' NAME=DESCRIPTION><H1>One</H1><IMG ALT='Trail > river'></HTML>"
+  test.ensureEqual (summit.Report.title report) "Trail & field"
+  test.ensureEqual (summit.Report.description report) "Helpful > details"
+  test.ensureEqual (summit.Report.h1Count report) 1
+  test.ensureEqual (summit.Report.missingAlt report) 0
+
+summit.tests.ignoresCommentsAndScripts = test.verify do
+  report = summit.audit "<!-- <h1>Fake</h1> --><script>let x = '<h1>Fake</h1>';</script><style>h1{color:red}</style><h1>Real</h1><img src='a'>"
+  test.ensureEqual (summit.Report.h1Count report) 1
+  test.ensureEqual (summit.Report.missingAlt report) 1
+
+summit.tests.noindex = test.verify do
+  report = summit.audit "<meta name='robots' content='follow, NOINDEX'><h1>Private</h1>"
+  check = List.find (c -> summit.Check.id c == "indexable") (summit.Report.checks report)
+  test.ensureEqual (Optional.map summit.Check.status check) (Some "fail")
+
+summit.tests.emptyAltIsDecorative = test.verify do
+  report = summit.audit "<img alt=''><img src='missing.png'><img alt='Trail'>"
+  test.ensureEqual (summit.Report.imageCount report) 3
+  test.ensureEqual (summit.Report.missingAlt report) 1
+
+summit.tests.combinedRobotsNone = test.verify do
+  report = summit.audit "<meta name='robots' content='none, max-image-preview:large'><h1>Private</h1>"
+  check = List.find (c -> summit.Check.id c == "indexable") (summit.Report.checks report)
+  test.ensureEqual (Optional.map summit.Check.status check) (Some "fail")

@@ -1,0 +1,145 @@
+structural type summit.Check = { id : Text, label : Text, status : Text, detail : Text }
+structural type summit.Report = { score : Nat, title : Text, description : Text, h1Count : Nat, imageCount : Nat, missingAlt : Nat, checks : [summit.Check] }
+structural type summit.Token = Tag Text [(Text, Text)] Boolean | Content Text
+
+summit.first pair = match pair with (a, _) -> a
+summit.second pair = match pair with (_, b) -> b
+summit.append a b =
+  use Text ++
+  a ++ b
+
+summit.space : Char -> Boolean
+summit.space c = List.contains (Char.toNat c) [9, 10, 12, 13, 32]
+
+summit.span : (Char -> Boolean) -> [Char] -> ([Char], [Char])
+summit.span p cs =
+  go acc rest = match rest with
+    c +: tail -> if p c then go (c +: acc) tail else (List.reverse acc, rest)
+    [] -> (List.reverse acc, [])
+  go [] cs
+
+summit.skipSpace cs = summit.span summit.space cs |> summit.second
+
+summit.until : Text -> [Char] -> [Char]
+summit.until end cs =
+  n = Text.size end
+  if Text.toLowercase (Text.fromCharList (List.take n cs)) === end then List.drop n cs
+  else match cs with
+    [] -> []
+    _ +: tail -> summit.until end tail
+
+summit.readTag : Nat -> [Char] -> [Char] -> ([Char], [Char])
+summit.readTag quote acc rest = match rest with
+  [] -> (List.reverse acc, [])
+  c +: tail ->
+    n = Char.toNat c
+    if quote === 0 && n === 62 then (List.reverse acc, tail)
+    else
+      next = if n === quote then 0 else if quote === 0 && (n === 34 || n === 39) then n else quote
+      summit.readTag next (c +: acc) tail
+
+summit.attributes : [Char] -> [(Text, Text)]
+summit.attributes cs =
+  rest = summit.skipSpace cs
+  match rest with
+    [] -> []
+    c +: tail ->
+      if Char.toNat c === 47 then summit.attributes tail
+      else
+        (key, afterKey) = summit.span (x -> not (summit.space x) && Char.toNat x != 61 && Char.toNat x != 47) rest
+        remaining = summit.skipSpace afterKey
+        name = Text.toLowercase (Text.fromCharList key)
+        match remaining with
+          eq +: valueStart ->
+            if Char.toNat eq === 61 then
+              v = summit.skipSpace valueStart
+              match v with
+                q +: valueTail ->
+                  if Char.toNat q === 34 || Char.toNat q === 39 then
+                    (value, end) = summit.span (x -> x != q) valueTail
+                    (name, Text.fromCharList value) +: summit.attributes (List.drop 1 end)
+                  else
+                    (value, end) = summit.span (x -> not (summit.space x)) v
+                    (name, Text.fromCharList value) +: summit.attributes end
+                [] -> [(name, "")]
+            else (name, "") +: summit.attributes remaining
+          [] -> [(name, "")]
+
+summit.tokens : [Char] -> [summit.Token]
+summit.tokens cs = match cs with
+  [] -> []
+  c +: tail ->
+    if Text.fromCharList (List.take 4 cs) === "<!--" then summit.tokens (summit.until "-->" (List.drop 4 cs))
+    else if Char.toNat c === 60 then
+      (raw, rest) = summit.readTag 0 [] tail
+      cleaned = summit.skipSpace raw
+      closing = List.take 1 cleaned === Text.toCharList "/"
+      body = if closing then List.drop 1 cleaned else cleaned
+      (nameChars, attrs) = summit.span (x -> not (summit.space x) && Char.toNat x != 47) body
+      name = Text.toLowercase (Text.fromCharList nameChars)
+      if (name === "script" || name === "style") && not closing then
+        summit.tokens (summit.until ">" (summit.until (summit.append "</" name) rest))
+      else summit.Token.Tag name (summit.attributes attrs) closing +: summit.tokens rest
+    else
+      (content, rest) = summit.span (x -> Char.toNat x != 60) cs
+      summit.Token.Content (Text.fromCharList content) +: summit.tokens rest
+
+summit.attr key attrs = List.find (pair -> summit.first pair === key) attrs |> Optional.map summit.second
+summit.attrText key attrs = Optional.getOrElse "" (summit.attr key attrs)
+summit.tags name tokens =
+  pick t = match t with
+    summit.Token.Tag n attrs false -> if n === name then Some attrs else None
+    _ -> None
+  List.filterMap pick tokens
+
+summit.decode text =
+  text |> Text.replaceAll "&lt;" "<" |> Text.replaceAll "&gt;" ">" |> Text.replaceAll "&quot;" "\"" |> Text.replaceAll "&#39;" "'" |> Text.replaceAll "&apos;" "'" |> Text.replaceAll "&nbsp;" " " |> Text.replaceAll "&amp;" "&"
+
+summit.titleText tokens =
+  collect acc rest = match rest with
+    [] -> Text.join "" (List.reverse acc)
+    summit.Token.Tag "title" _ true +: _ -> Text.join "" (List.reverse acc)
+    summit.Token.Content text +: tail -> collect (text +: acc) tail
+    _ +: tail -> collect acc tail
+  find rest = match rest with
+    [] -> ""
+    summit.Token.Tag "title" _ false +: tail -> collect [] tail
+    _ +: tail -> find tail
+  find tokens |> summit.decode |> Text.trim
+
+summit.check id label passed detail = summit.Check.Check id label (if passed then "pass" else "fail") detail
+
+summit.audit : Text -> summit.Report
+summit.audit html =
+  use Nat + * /
+  tokens = summit.tokens (Text.toCharList html)
+  title = summit.titleText tokens
+  metas = summit.tags "meta" tokens
+  description = List.find (a -> Text.toLowercase (summit.attrText "name" a) === "description") metas |> Optional.map (summit.attrText "content") |> Optional.getOrElse "" |> summit.decode |> Text.trim
+  h1Count = List.size (summit.tags "h1" tokens)
+  images = summit.tags "img" tokens
+  missing = List.size (List.filter (a -> summit.attr "alt" a === None) images)
+  canonical = List.any (a -> Text.contains "canonical" (Text.toLowercase (summit.attrText "rel" a)) && Text.trim (summit.attrText "href" a) != "") (summit.tags "link" tokens)
+  language = List.any (a -> Text.trim (summit.attrText "lang" a) != "") (summit.tags "html" tokens)
+  blocksIndex a =
+    name = Text.toLowercase (summit.attrText "name" a)
+    content = Text.toLowercase (summit.attrText "content" a)
+    directives = content |> Text.replaceAll "," " " |> Text.replaceAll "\t" " " |> Text.replaceAll "\n" " " |> Text.split ?\s |> List.map Text.trim
+    (name === "robots" || name === "googlebot") && (List.contains "noindex" directives || List.contains "none" directives)
+  noindex = List.any blocksIndex metas
+  present = Text.trim html != ""
+  lengthCheck id label text lo hi =
+    size = Text.size text
+    status = if size === 0 then "fail" else if size >= lo && size <= hi then "pass" else "warning"
+    summit.Check.Check id label status (summit.append (Nat.toText size) " characters. Length is a writing guideline, not a ranking guarantee.")
+  checks =
+    [ lengthCheck "title" "Page title" title 30 60
+    , lengthCheck "description" "Meta description" description 70 160
+    , summit.check "heading" "One clear main heading" (h1Count === 1) (summit.append (Nat.toText h1Count) " H1 headings found. Aim for one descriptive page heading.")
+    , summit.check "canonical" "Canonical URL" canonical "A canonical link helps identify the preferred version of a page."
+    , summit.check "language" "Document language" language "Declare a language on the HTML element to help assistive technology."
+    , summit.check "indexable" "Indexing directive" (present && not noindex) (if noindex then "A robots directive asks search engines not to index this page. Confirm this is intentional." else "No blocking meta robots directive found. HTTP headers and robots.txt are not checked.")
+    , summit.check "images" "Image alternative text" (present && missing === 0) (summit.append (Nat.toText missing) " images are missing an alt attribute. Empty alt is allowed for decorative images.")
+    ]
+  points = List.map (c -> if summit.Check.status c === "pass" then 2 else if summit.Check.status c === "warning" then 1 else 0) checks |> List.foldLeft (acc x -> acc + x) 0
+  summit.Report.Report (points * 100 / 14) title description h1Count (List.size images) missing checks

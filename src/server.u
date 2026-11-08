@@ -1,0 +1,90 @@
+-- Browser files are presentation assets. HTTP routing and all audit rules run in Unison.
+summit.json.quote : Text -> Text
+summit.json.quote text =
+  use Text ++
+  escape c =
+    n = Char.toNat c
+    if n === 34 then "\\\""
+    else if n === 92 then "\\\\"
+    else if n < 32 then
+      hex = "0123456789abcdef"
+      "\\u00" ++ Text.take 1 (Text.drop (n Nat./ 16) hex) ++ Text.take 1 (Text.drop (Nat.mod n 16) hex)
+    else Text.fromCharList [c]
+  "\"" ++ Text.join "" (List.map escape (Text.toCharList text)) ++ "\""
+
+summit.json.object fields =
+  use Text ++
+  field pair = match pair with
+    (key, value) -> summit.json.quote key ++ ":" ++ value
+  "{" ++ Text.join "," (List.map field fields) ++ "}"
+
+summit.json.report report =
+  use Text ++
+  check c = summit.json.object [
+      ("id", summit.json.quote (summit.Check.id c))
+    , ("label", summit.json.quote (summit.Check.label c))
+    , ("status", summit.json.quote (summit.Check.status c))
+    , ("detail", summit.json.quote (summit.Check.detail c))
+    ]
+  summit.json.object
+    [ ("score", Nat.toText (summit.Report.score report))
+    , ("title", summit.json.quote (summit.Report.title report))
+    , ("description", summit.json.quote (summit.Report.description report))
+    , ("h1Count", Nat.toText (summit.Report.h1Count report))
+    , ("imageCount", Nat.toText (summit.Report.imageCount report))
+    , ("missingAlt", Nat.toText (summit.Report.missingAlt report))
+    , ("checks", "[" ++ Text.join "," (List.map check (summit.Report.checks report)) ++ "]")
+    ]
+
+summit.response contentType body =
+  HttpResponse.ok (Body.fromText body)
+    |> HttpResponse.addHeader "Content-Type" contentType
+    |> HttpResponse.addHeader "Cache-Control" "no-store"
+    |> HttpResponse.addHeader "X-Content-Type-Options" "nosniff"
+    |> HttpResponse.addHeader "Content-Security-Policy" "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+summit.badRequest message =
+  HttpResponse.badRequest
+    |> HttpResponse.body.set (Body.fromText (summit.json.object [("error", summit.json.quote message)]))
+    |> HttpResponse.addHeader "Content-Type" "application/json; charset=utf-8"
+
+summit.analyze body =
+  bytes = Body.toBytes body
+  if Bytes.size bytes > 500000 then summit.badRequest "This page is too large. Upload HTML smaller than 500 KB."
+  else match Text.fromUtf8.impl bytes with
+    Left _ -> summit.badRequest "Please supply a UTF-8 HTML document."
+    Right html ->
+      if Text.trim html === "" || not (Text.contains "<" html) then summit.badRequest "Paste or upload the HTML source of a page to analyze it."
+      else summit.response "application/json; charset=utf-8" (summit.json.report (summit.audit html))
+
+summit.asset path contentType =
+  body = FilePath.readFileUtf8 (FilePath path)
+  summit.response contentType body
+
+summit.handler : Handler IO
+summit.handler = Handler cases
+  HttpRequest GET _ (URI _ _ (Path segments) _ _) _ _ ->
+    match segments with
+      [] -> summit.asset "web/index.html" "text/html; charset=utf-8"
+      [""] -> summit.asset "web/index.html" "text/html; charset=utf-8"
+      ["styles.css"] -> summit.asset "web/styles.css" "text/css; charset=utf-8"
+      ["app.js"] -> summit.asset "web/app.js" "text/javascript; charset=utf-8"
+      ["api", "health"] -> summit.response "application/json" "{\"runtime\":\"Unison 1.3\",\"status\":\"ok\"}"
+      _ -> HttpResponse.notFound
+  HttpRequest POST _ (URI _ _ (Path ["api", "analyze"]) _ _) _ body -> summit.analyze body
+  _ -> HttpResponse.notFound
+
+summit.wait : '{IO, Exception} ()
+summit.wait = do
+  sleepMicroseconds 60000000
+  summit.wait()
+
+summit.main : '{IO, Exception} ()
+summit.main = do
+  use Routes <<<
+  config = server.Config.Config (Some (HostName "127.0.0.1")) (Port "4174") None
+  routes = Routes.default <<< summit.handler
+  Threads.run do
+    server.Config.serve routes config
+    printLine "SUMMIT SEO / Unison / http://127.0.0.1:4174"
+    summit.wait()

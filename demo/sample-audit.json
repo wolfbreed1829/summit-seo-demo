@@ -1,0 +1,57 @@
+{
+  "score": 85,
+  "title": "Trail Essentials for Your Next Hike | Summit Outdoors",
+  "description": "Pack with confidence for your next hike. Explore our practical guide to trail essentials, from comfortable footwear to the small items that make a difference.",
+  "h1Count": 1,
+  "imageCount": 2,
+  "missingAlt": 1,
+  "checks": [
+    {
+      "id": "title",
+      "label": "Page title",
+      "status": "pass",
+      "detail": "53 characters. Length is a writing guideline, not a ranking guarantee."
+    },
+    {
+      "id": "description",
+      "label": "Meta description",
+      "status": "pass",
+      "detail": "158 characters. Length is a writing guideline, not a ranking guarantee."
+    },
+    {
+      "id": "heading",
+      "label": "One clear main heading",
+      "status": "pass",
+      "detail": "1 H1 headings found. Aim for one descriptive page heading."
+    },
+    {
+      "id": "canonical",
+      "label": "Canonical URL",
+      "status": "pass",
+      "detail": "A canonical link helps identify the preferred version of a page."
+    },
+    {
+      "id": "language",
+      "label": "Document language",
+      "status": "pass",
+      "detail": "Declare a language on the HTML element to help assistive technology."
+    },
+    {
+      "id": "indexable",
+      "label": "Indexing directive",
+      "status": "pass",
+      "detail": "No blocking meta robots directive found. HTTP headers and robots.txt are not checked."
+    },
+    {
+      "id": "images",
+      "label": "Image alternative text",
+      "status": "fail",
+      "detail": "1 images are missing an alt attribute. Empty alt is allowed for decorative images."
+    }
+  ],
+  "sample": {
+    "runtime": "Unison 1.3",
+    "sourceSha256": "6c6b111c9759554994e1c8cc3f5d77479413a24c4ee4a2c2ef6ffea90c56432e",
+    "notice": "Precomputed example from the real Unison audit engine. Custom audits require the local app."
+  }
+}

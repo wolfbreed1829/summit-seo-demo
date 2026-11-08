@@ -1,0 +1,20 @@
+-- This service is pure: HTML auditing and embedded browser assets need no IO,
+-- database, provider credentials, or filesystem on the Cloud server.
+summit.cloud.service : HttpRequest -> HttpResponse
+summit.cloud.service = cases
+  HttpRequest GET _ (URI _ _ (Path segments) _ _) _ _ ->
+    match segments with
+      [] -> summit.response "text/html; charset=utf-8" summit.assets.html
+      [""] -> summit.response "text/html; charset=utf-8" summit.assets.html
+      ["styles.css"] -> summit.response "text/css; charset=utf-8" summit.assets.css
+      ["app.js"] -> summit.response "text/javascript; charset=utf-8" summit.assets.javascript
+      ["api", "health"] -> summit.response "application/json" "{\"runtime\":\"Unison Cloud\",\"status\":\"ok\"}"
+      _ -> HttpResponse.notFound
+  HttpRequest POST _ (URI _ _ (Path ["api", "analyze"]) _ _) _ body -> summit.analyze body
+  _ -> HttpResponse.notFound
+
+summit.cloud.deploy : '{IO, Exception} URI
+summit.cloud.deploy = Cloud.main do
+  environment = Environment.named "summit-seo-demo"
+  service = Cloud.deployHttp environment summit.cloud.service
+  ServiceName.assign (ServiceName.named "summit-seo") service
